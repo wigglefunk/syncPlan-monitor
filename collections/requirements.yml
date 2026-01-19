@@ -1,0 +1,10 @@
+---
+# collections/requirements.yml
+# Install with: ansible-galaxy collection install -r collections/requirements.yml
+#
+# This file defines the Ansible collections required for the
+# satellite_sync_plan_weekly_enforcement role to function.
+
+collections:
+  - name: redhat.satellite
+    version: ">=3.6.0"

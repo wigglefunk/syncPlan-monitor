@@ -1,0 +1,98 @@
+---
+# roles/satellite_sync_plan_weekly_enforcement/tasks/process_organization.yml
+#
+# Included task file to process sync plans for a single organization.
+# Called from main.yml in a loop with 'current_org' as the loop variable.
+#
+# This file:
+#   1. Retrieves all sync plans for the current organization
+#   2. Identifies sync plans where interval != 'weekly'
+#   3. Updates those sync plans to have interval: weekly
+#   4. Updates tracking variables for the compliance report
+
+# -----------------------------------------------------------------------------
+# Get all sync plans for this organization
+# -----------------------------------------------------------------------------
+- name: "Get sync plans for organization: {{ current_org.name }}"
+  redhat.satellite.resource_info:
+    server_url: "{{ satellite_server_url }}"
+    username: "{{ satellite_setup_username }}"
+    password: "{{ satellite_initial_admin_password }}"
+    validate_certs: true
+    resource: sync_plans
+    params:
+      organization_id: "{{ current_org.id }}"
+  register: org_sync_plans
+
+# -----------------------------------------------------------------------------
+# Identify non-compliant sync plans (interval != 'weekly')
+# -----------------------------------------------------------------------------
+- name: "Identify non-compliant sync plans in: {{ current_org.name }}"
+  ansible.builtin.set_fact:
+    non_compliant_plans: >-
+      {{
+        org_sync_plans.resources
+        | selectattr('interval', 'ne', 'weekly')
+        | list
+      }}
+
+- name: "Display sync plan status for: {{ current_org.name }}"
+  ansible.builtin.debug:
+    msg: >-
+      Organization '{{ current_org.name }}':
+      {{ org_sync_plans.resources | length }} sync plan(s) found,
+      {{ non_compliant_plans | length }} non-compliant (not weekly)
+
+# -----------------------------------------------------------------------------
+# Correct non-compliant sync plans (change interval to weekly)
+# -----------------------------------------------------------------------------
+# Note: We only modify the 'interval' attribute. All other attributes
+# (name, enabled, sync_date, products) are left unchanged.
+- name: "Enforce weekly interval on non-compliant sync plans in: {{ current_org.name }}"
+  redhat.satellite.sync_plan:
+    server_url: "{{ satellite_server_url }}"
+    username: "{{ satellite_setup_username }}"
+    password: "{{ satellite_initial_admin_password }}"
+    validate_certs: true
+    name: "{{ item.name }}"
+    organization: "{{ current_org.name }}"
+    interval: weekly
+    state: present
+  loop: "{{ non_compliant_plans }}"
+  loop_control:
+    label: "{{ item.name }} (was: {{ item.interval }})"
+  register: enforcement_results
+  when: non_compliant_plans | length > 0
+
+# -----------------------------------------------------------------------------
+# Update tracking variables for the compliance report
+# -----------------------------------------------------------------------------
+# Add to corrected_organizations if we made changes
+- name: "Track corrected organization: {{ current_org.name }}"
+  ansible.builtin.set_fact:
+    corrected_organizations: "{{ corrected_organizations + [current_org.name] }}"
+  when: non_compliant_plans | length > 0
+
+# Add to compliant_organizations if no changes were needed
+- name: "Track compliant organization: {{ current_org.name }}"
+  ansible.builtin.set_fact:
+    compliant_organizations: "{{ compliant_organizations + [current_org.name] }}"
+  when: non_compliant_plans | length == 0
+
+# Record enforcement details for the report
+- name: "Record enforcement details for: {{ current_org.name }}"
+  ansible.builtin.set_fact:
+    enforcement_details: >-
+      {{
+        enforcement_details + [
+          {
+            'organization': current_org.name,
+            'sync_plan': item.name,
+            'old_interval': item.interval
+          }
+        ]
+      }}
+  loop: "{{ non_compliant_plans }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: non_compliant_plans | length > 0
