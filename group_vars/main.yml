@@ -25,12 +25,9 @@ satellite_server_url: "https://satellite.example.com"
 #
 sync_plan_enforcement_org_opt_out: []
 
-# -----------------------------------------------------------------------------
-# Credentials (Expected to be provided by AAP at runtime)
-# -----------------------------------------------------------------------------
-# These variables should be injected by AAP via a Red Hat Satellite credential
-# type or as extra variables. They are listed here for documentation purposes
-# only and should NOT contain actual credentials.
-#
-# satellite_setup_username: "admin"
-# satellite_initial_admin_password: "changeme"
+# ============================================================================
+# Satellite API Credentials
+# ============================================================================
+# These are injected by the AAP Satellite API credential attached to the job template
+satellite_setup_username: "{{ app_username }}"
+satellite_initial_admin_password: "{{ app_password }}"
