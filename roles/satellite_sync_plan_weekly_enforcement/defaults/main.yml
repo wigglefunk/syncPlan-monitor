@@ -1,0 +1,36 @@
+---
+# roles/satellite_sync_plan_weekly_enforcement/defaults/main.yml
+#
+# Default variables for the satellite_sync_plan_weekly_enforcement role.
+# These can be overridden via group_vars, host_vars, or AAP survey/extra_vars.
+
+# -----------------------------------------------------------------------------
+# Satellite Server URL
+# -----------------------------------------------------------------------------
+# Full URL to your Red Hat Satellite server.
+# Update this to match your environment.
+#
+satellite_server_url: "https://satellite.example.com"
+
+# -----------------------------------------------------------------------------
+# Organization Opt-Out List
+# -----------------------------------------------------------------------------
+# Organizations listed here will be SKIPPED during enforcement.
+# Sync plans in these orgs will NOT be modified, regardless of their interval.
+#
+# Example:
+#   sync_plan_enforcement_org_opt_out:
+#     - "Lab_Org"
+#     - "Test_Environment"
+#
+sync_plan_enforcement_org_opt_out: []
+
+# -----------------------------------------------------------------------------
+# Credentials (Expected to be provided by AAP at runtime)
+# -----------------------------------------------------------------------------
+# These variables should be injected by AAP via a Red Hat Satellite credential
+# type or as extra variables. They are listed here for documentation purposes
+# only and should NOT contain actual credentials.
+#
+# satellite_setup_username: "admin"
+# satellite_initial_admin_password: "changeme"

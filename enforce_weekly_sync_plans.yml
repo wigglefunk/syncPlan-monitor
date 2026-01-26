@@ -1,8 +1,44 @@
 ---
+# playbooks/enforce_weekly_sync_plans.yml
+#
+# Example playbook demonstrating how to use the satellite_sync_plan_weekly_enforcement role.
+#
+# This playbook enforces weekly sync plan intervals across all organizations
+# in Red Hat Satellite, except for organizations in the opt-out list.
+#
+# Usage:
+#   ansible-playbook playbooks/enforce_weekly_sync_plans.yml
+#
+# AAP Usage:
+#   Create a Job Template pointing to this playbook and attach appropriate
+#   credentials for Satellite access.
 
 - name: Enforce weekly sync plan intervals across all Satellite organizations
   hosts: localhost
   connection: local
   gather_facts: false
+
+  # -------------------------------------------------------------------------
+  # Variables
+  # -------------------------------------------------------------------------
+  # In AAP, these would typically come from:
+  #   - Credential injection (username, password)
+  #   - Extra variables or Survey (opt-out list)
+  #   - Group/Host vars
+  #
+  # Note: satellite_server_url is defined in role defaults/main.yml
+  #       Update it there or override via group_vars/extra_vars.
+  #
+  vars:
+    # Satellite credentials - injected by AAP credentials at runtime
+    # satellite_setup_username: "admin"
+    # satellite_initial_admin_password: "{{ lookup('env', 'SATELLITE_PASSWORD') }}"
+
+    # Organizations to exclude from enforcement
+    # Override this via AAP Survey or extra_vars as needed
+    sync_plan_enforcement_org_opt_out:
+      - "Example_Org_1"
+      - "Example_Org_2"
+
   roles:
     - satellite_sync_plan_weekly_enforcement

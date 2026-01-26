@@ -1,98 +1,134 @@
 ---
-# roles/satellite_sync_plan_weekly_enforcement/tasks/process_organization.yml
+# roles/satellite_sync_plan_weekly_enforcement/tasks/main.yml
 #
-# Included task file to process sync plans for a single organization.
-# Called from main.yml in a loop with 'current_org' as the loop variable.
+# Main entry point for the satellite_sync_plan_weekly_enforcement role.
+# This file orchestrates the enforcement of weekly sync plan intervals.
 #
-# This file:
-#   1. Retrieves all sync plans for the current organization
-#   2. Identifies sync plans where interval != 'weekly'
-#   3. Updates those sync plans to have interval: weekly
-#   4. Updates tracking variables for the compliance report
+# Workflow:
+#   1. Initialize tracking variables for the compliance report
+#   2. Retrieve all organizations from Satellite
+#   3. Filter out opted-out organizations
+#   4. Loop through each organization and process its sync plans
+#   5. Generate and display the compliance report
 
 # -----------------------------------------------------------------------------
-# Get all sync plans for this organization
+# Initialize tracking variables
 # -----------------------------------------------------------------------------
-- name: "Get sync plans for organization: {{ current_org.name }}"
-  redhat.satellite.resource_info:
+# These lists track which organizations were corrected vs already compliant.
+# Used later to generate the compliance report.
+- name: Initialize compliance tracking variables
+  ansible.builtin.set_fact:
+    corrected_organizations: []
+    compliant_organizations: []
+    enforcement_details: []
+
+# -----------------------------------------------------------------------------
+# Retrieve all organizations from Satellite
+# -----------------------------------------------------------------------------
+# Uses the redhat.satellite.organization_info module to get all orgs.
+- name: Get all organizations from Satellite
+  redhat.satellite.organization_info:
     server_url: "{{ satellite_server_url }}"
     username: "{{ satellite_setup_username }}"
     password: "{{ satellite_initial_admin_password }}"
     validate_certs: true
-    resource: sync_plans
-    params:
-      organization_id: "{{ current_org.id }}"
-  register: org_sync_plans
+  register: all_organizations
+
+- name: Display retrieved organizations
+  ansible.builtin.debug:
+    msg: "Found {{ all_organizations.organizations | length }} organization(s) in Satellite"
 
 # -----------------------------------------------------------------------------
-# Identify non-compliant sync plans (interval != 'weekly')
+# Filter out opted-out organizations
 # -----------------------------------------------------------------------------
-- name: "Identify non-compliant sync plans in: {{ current_org.name }}"
+# Remove any organizations listed in sync_plan_enforcement_org_opt_out.
+- name: Build list of organizations to process (excluding opt-outs)
   ansible.builtin.set_fact:
-    non_compliant_plans: >-
+    organizations_to_process: >-
       {{
-        org_sync_plans.resources
-        | selectattr('interval', 'ne', 'weekly')
+        all_organizations.organizations
+        | rejectattr('name', 'in', sync_plan_enforcement_org_opt_out)
         | list
       }}
 
-- name: "Display sync plan status for: {{ current_org.name }}"
+- name: Display organizations to be processed
   ansible.builtin.debug:
     msg: >-
-      Organization '{{ current_org.name }}':
-      {{ org_sync_plans.resources | length }} sync plan(s) found,
-      {{ non_compliant_plans | length }} non-compliant (not weekly)
+      Processing {{ organizations_to_process | length }} organization(s).
+      Opted-out: {{ sync_plan_enforcement_org_opt_out | default([]) | join(', ') | default('none', true) }}
 
 # -----------------------------------------------------------------------------
-# Correct non-compliant sync plans (change interval to weekly)
+# Process each organization
 # -----------------------------------------------------------------------------
-# Note: We only modify the 'interval' attribute. All other attributes
-# (name, enabled, sync_date, products) are left unchanged.
-- name: "Enforce weekly interval on non-compliant sync plans in: {{ current_org.name }}"
-  redhat.satellite.sync_plan:
-    server_url: "{{ satellite_server_url }}"
-    username: "{{ satellite_setup_username }}"
-    password: "{{ satellite_initial_admin_password }}"
-    validate_certs: true
-    name: "{{ item.name }}"
-    organization: "{{ current_org.name }}"
-    interval: weekly
-    state: present
-  loop: "{{ non_compliant_plans }}"
+# Loop through each organization and include the processing tasks.
+# The 'current_org' variable is available inside process_organization.yml.
+- name: Process sync plans for each organization
+  ansible.builtin.include_tasks: process_organization.yml
+  loop: "{{ organizations_to_process }}"
   loop_control:
-    label: "{{ item.name }} (was: {{ item.interval }})"
-  register: enforcement_results
-  when: non_compliant_plans | length > 0
+    loop_var: current_org
+    label: "{{ current_org.name }}"
 
 # -----------------------------------------------------------------------------
-# Update tracking variables for the compliance report
+# Generate Compliance Report
 # -----------------------------------------------------------------------------
-# Add to corrected_organizations if we made changes
-- name: "Track corrected organization: {{ current_org.name }}"
-  ansible.builtin.set_fact:
-    corrected_organizations: "{{ corrected_organizations + [current_org.name] }}"
-  when: non_compliant_plans | length > 0
+- name: Display compliance report header
+  ansible.builtin.debug:
+    msg: |
 
-# Add to compliant_organizations if no changes were needed
-- name: "Track compliant organization: {{ current_org.name }}"
-  ansible.builtin.set_fact:
-    compliant_organizations: "{{ compliant_organizations + [current_org.name] }}"
-  when: non_compliant_plans | length == 0
+      ============================================================
+      Weekly Sync Plan Interval Compliance Report
+      ============================================================
 
-# Record enforcement details for the report
-- name: "Record enforcement details for: {{ current_org.name }}"
-  ansible.builtin.set_fact:
-    enforcement_details: >-
-      {{
-        enforcement_details + [
-          {
-            'organization': current_org.name,
-            'sync_plan': item.name,
-            'old_interval': item.interval
-          }
-        ]
-      }}
-  loop: "{{ non_compliant_plans }}"
-  loop_control:
-    label: "{{ item.name }}"
-  when: non_compliant_plans | length > 0
+- name: Display corrected organizations
+  ansible.builtin.debug:
+    msg: |
+      Corrected Organizations (interval changed to weekly):
+      {% if corrected_organizations | length > 0 %}
+      {% for org in corrected_organizations %}
+        - {{ org }}
+      {% endfor %}
+      {% else %}
+        (none)
+      {% endif %}
+
+- name: Display compliant organizations
+  ansible.builtin.debug:
+    msg: |
+      Compliant Organizations (no changes required):
+      {% if compliant_organizations | length > 0 %}
+      {% for org in compliant_organizations %}
+        - {{ org }}
+      {% endfor %}
+      {% else %}
+        (none)
+      {% endif %}
+
+- name: Display opted-out organizations
+  ansible.builtin.debug:
+    msg: |
+      Opted-Out Organizations (skipped):
+      {% if sync_plan_enforcement_org_opt_out | length > 0 %}
+      {% for org in sync_plan_enforcement_org_opt_out %}
+        - {{ org }}
+      {% endfor %}
+      {% else %}
+        (none)
+      {% endif %}
+
+- name: Display enforcement details
+  ansible.builtin.debug:
+    msg: |
+
+      Enforcement Details:
+      {% if enforcement_details | length > 0 %}
+      {% for detail in enforcement_details %}
+        - Org: {{ detail.organization }}, Plan: {{ detail.sync_plan }}, Was: {{ detail.old_interval }}, Now: weekly
+      {% endfor %}
+      {% else %}
+        No changes were made.
+      {% endif %}
+
+      ============================================================
+      End of Report
+      ============================================================
