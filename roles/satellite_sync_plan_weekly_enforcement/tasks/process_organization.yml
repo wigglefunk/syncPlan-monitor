@@ -48,6 +48,8 @@
 # -----------------------------------------------------------------------------
 # Note: We only modify the 'interval' attribute. All other attributes
 # (name, enabled, sync_date, products) are left unchanged.
+# The module requires enabled and sync_date, so we pass the existing values
+# back to preserve them - a necessary evil of the module's design.
 - name: "Enforce weekly interval on non-compliant sync plans in: {{ current_org.name }}"
   redhat.satellite.sync_plan:
     server_url: "{{ satellite_server_url }}"
@@ -57,6 +59,8 @@
     name: "{{ item.name }}"
     organization: "{{ current_org.name }}"
     interval: weekly
+    enabled: "{{ item.enabled }}"
+    sync_date: "{{ item.sync_date }}"
     state: present
   loop: "{{ non_compliant_plans }}"
   loop_control:
