@@ -10,17 +10,20 @@
 #   3. Filter out opted-out organizations
 #   4. Loop through each organization and process its sync plans
 #   5. Generate and display the compliance report
+#   6. Display product sync status report
+#   7. Send email notification if any sync failures are detected
 
 # -----------------------------------------------------------------------------
 # Initialize tracking variables
 # -----------------------------------------------------------------------------
-# These lists track which organizations were corrected vs already compliant.
-# Used later to generate the compliance report.
+# These lists track which organizations were corrected vs already compliant,
+# and collect product sync status across all organizations.
 - name: Initialize compliance tracking variables
   ansible.builtin.set_fact:
     corrected_organizations: []
     compliant_organizations: []
     enforcement_details: []
+    sync_status_details: []
 
 # -----------------------------------------------------------------------------
 # Retrieve all organizations from Satellite
@@ -69,9 +72,9 @@
     loop_var: current_org
     label: "{{ current_org.name }}"
 
-# -----------------------------------------------------------------------------
-# Generate Compliance Report
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Compliance Report
+# =============================================================================
 - name: Display compliance report header
   ansible.builtin.debug:
     msg: |
@@ -130,5 +133,116 @@
       {% endif %}
 
       ============================================================
-      End of Report
+      End of Compliance Report
       ============================================================
+
+# =============================================================================
+# Product Sync Status Report
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Identify sync failures - anything where sync_state != "Syncing Complete."
+# -----------------------------------------------------------------------------
+- name: Identify sync failures across all organizations
+  ansible.builtin.set_fact:
+    sync_failures: >-
+      {{
+        sync_status_details
+        | rejectattr('sync_state', 'equalto', 'Syncing Complete.')
+        | list
+      }}
+
+- name: Display product sync status report header
+  ansible.builtin.debug:
+    msg: |
+
+      ============================================================
+      Product Sync Status Report
+      ============================================================
+
+# -----------------------------------------------------------------------------
+# Display full sync status grouped by organization and sync plan
+# Products with sync failures are flagged with *** SYNC FAILURE ***
+# -----------------------------------------------------------------------------
+- name: Display product sync status report
+  ansible.builtin.debug:
+    msg: |
+      {% set ns = namespace(current_org='', current_plan='') %}
+      {% for entry in sync_status_details %}
+      {% if entry.organization != ns.current_org %}
+      {% set ns.current_org = entry.organization %}
+      Organization: {{ entry.organization }}
+      {% endif %}
+      {% if entry.sync_plan != ns.current_plan %}
+      {% set ns.current_plan = entry.sync_plan %}
+        Sync Plan: {{ entry.sync_plan }}
+      {% endif %}
+      {% if entry.sync_state != 'Syncing Complete.' %}
+          *** SYNC FAILURE *** {{ entry.product_name }} | {{ entry.sync_state }} | {{ entry.last_sync }}
+      {% else %}
+          - {{ entry.product_name }} | {{ entry.sync_state }} | {{ entry.last_sync }}
+      {% endif %}
+      {% endfor %}
+      {% if sync_status_details | length == 0 %}
+        No sync plans with products found.
+      {% endif %}
+
+# -----------------------------------------------------------------------------
+# Summary line - quick glance at overall health
+# -----------------------------------------------------------------------------
+- name: Display sync status summary
+  ansible.builtin.debug:
+    msg: |
+
+      Summary: {{ sync_status_details | length }} product(s) checked, {{ sync_failures | length }} failure(s) detected.
+
+      ============================================================
+      End of Product Sync Status Report
+      ============================================================
+
+# =============================================================================
+# Email notification on sync failure
+# =============================================================================
+# Only fires if there are failures. No failures = no email = no noise.
+# Uses community.general.mail module for SMTP delivery.
+# -----------------------------------------------------------------------------
+- name: Send sync failure email notification
+  community.general.mail:
+    host: "{{ smtp_host }}"
+    port: "{{ smtp_port }}"
+    secure: "{{ smtp_secure }}"
+    username: "{{ smtp_username | default(omit) }}"
+    password: "{{ smtp_password | default(omit) }}"
+    from: "{{ sync_failure_email_from }}"
+    to: "{{ sync_failure_email_to }}"
+    subject: "ALERT - Satellite Sync Failure Detected - {{ sync_failures | length }} product(s) affected"
+    body: |
+      ============================================================
+      Satellite Sync Failure Report
+      ============================================================
+
+      {{ sync_failures | length }} product(s) with incomplete or failed sync detected.
+
+      Failures:
+      {% for failure in sync_failures %}
+        *** SYNC FAILURE ***
+          Organization: {{ failure.organization }}
+          Sync Plan:    {{ failure.sync_plan }}
+          Product:      {{ failure.product_name }}
+          Sync State:   {{ failure.sync_state }}
+          Last Sync:    {{ failure.last_sync }}
+
+      {% endfor %}
+      ============================================================
+      End of Satellite Sync Failure Report
+      ============================================================
+
+      This is an automated notification from the
+      satellite_sync_plan_weekly_enforcement role.
+  delegate_to: localhost
+  when: sync_failures | length > 0
+
+- name: Confirm no sync failure email needed
+  ansible.builtin.debug:
+    msg: "All products report 'Syncing Complete.' - no failure email sent."
+  when: sync_failures | length == 0

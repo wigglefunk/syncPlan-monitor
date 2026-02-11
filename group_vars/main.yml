@@ -1,8 +1,8 @@
 ---
-# roles/satellite_sync_plan_weekly_enforcement/defaults/main.yml
+# group_vars/main.yml
 #
-# Default variables for the satellite_sync_plan_weekly_enforcement role.
-# These can be overridden via group_vars, host_vars, or AAP survey/extra_vars.
+# Group variables for the satellite_sync_plan_weekly_enforcement role.
+# These override role defaults and are the right place for environment-specific values.
 
 # -----------------------------------------------------------------------------
 # Satellite Server URL
@@ -31,3 +31,30 @@ sync_plan_enforcement_org_opt_out: []
 # These are injected by the AAP Satellite API credential attached to the job template
 satellite_setup_username: "{{ app_username }}"
 satellite_initial_admin_password: "{{ app_password }}"
+
+# ============================================================================
+# SMTP / Email Settings (for sync failure notifications)
+# ============================================================================
+# Update these to match your mail relay or SMTP server.
+# Only used when a sync failure is detected.
+
+# SMTP server hostname or IP
+smtp_host: "smtp.example.com"
+
+# SMTP server port (25 = plain, 587 = starttls, 465 = ssl)
+smtp_port: 25
+
+# SMTP connection security: 'try', 'always', 'never', or 'starttls'
+smtp_secure: "try"
+
+# SMTP authentication credentials (uncomment if your relay requires auth)
+# smtp_username: "{{ vault_smtp_username }}"
+# smtp_password: "{{ vault_smtp_password }}"
+
+# Sender address for failure notification emails
+sync_failure_email_from: "satellite-noreply@example.com"
+
+# Recipient(s) for failure notification emails
+# Add as many addresses as needed
+sync_failure_email_to:
+  - "satellite-admins@example.com"

@@ -8,7 +8,8 @@
 #   1. Retrieves all sync plans for the current organization
 #   2. Identifies sync plans where interval != 'weekly'
 #   3. Updates those sync plans to have interval: weekly
-#   4. Updates tracking variables for the compliance report
+#   4. Collects product sync status (name, sync_state, last_sync) from ALL sync plans
+#   5. Updates tracking variables for the compliance report
 
 # -----------------------------------------------------------------------------
 # Get all sync plans for this organization
@@ -100,3 +101,28 @@
   loop_control:
     label: "{{ item.name }}"
   when: non_compliant_plans | length > 0
+
+# -----------------------------------------------------------------------------
+# Collect product sync status from ALL sync plans in this organization
+# -----------------------------------------------------------------------------
+# We loop through every sync plan and pull out each product's sync status.
+# This covers all plans, not just the non-compliant ones.
+# The nested loop (subelements) walks: sync_plan -> products[] -> individual product
+- name: "Collect product sync status for: {{ current_org.name }}"
+  ansible.builtin.set_fact:
+    sync_status_details: >-
+      {{
+        sync_status_details + [
+          {
+            'organization': current_org.name,
+            'sync_plan': item.0.name,
+            'product_name': item.1.name,
+            'sync_state': item.1.sync_state,
+            'last_sync': item.1.last_sync | default('Never')
+          }
+        ]
+      }}
+  loop: "{{ org_sync_plans.resources | subelements('products', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }} -> {{ item.1.name }}"
+  when: org_sync_plans.resources | length > 0

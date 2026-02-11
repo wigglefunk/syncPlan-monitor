@@ -8,3 +8,7 @@
 collections:
   - name: redhat.satellite
     version: ">=3.6.0"
+
+  # Required for community.general.mail module (sync failure email notifications)
+  - name: community.general
+    version: ">=6.0.0"
