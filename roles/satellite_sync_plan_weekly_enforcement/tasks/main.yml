@@ -2,22 +2,24 @@
 # roles/satellite_sync_plan_weekly_enforcement/tasks/main.yml
 #
 # Main entry point for the satellite_sync_plan_weekly_enforcement role.
-# This file orchestrates the enforcement of weekly sync plan intervals.
+# This file orchestrates two separate concerns:
+#   A. Enforcement - correct non-weekly sync plan intervals (respects opt-out)
+#   B. Sync status - collect product sync health from ALL organizations (no opt-out)
 #
 # Workflow:
-#   1. Initialize tracking variables for the compliance report
+#   1. Initialize tracking variables for reports
 #   2. Retrieve all organizations from Satellite
-#   3. Filter out opted-out organizations
-#   4. Loop through each organization and process its sync plans
-#   5. Generate and display the compliance report
-#   6. Display product sync status report
-#   7. Send email notification if any sync failures are detected
+#   3. Filter out opted-out organizations (for enforcement only)
+#   4. Loop through filtered orgs - enforce weekly intervals
+#   5. Loop through ALL orgs - collect product sync status
+#   6. Generate and display compliance report
+#   7. Generate and display product sync status report
+#   8. Send email notification if any sync failures are detected
 
 # -----------------------------------------------------------------------------
 # Initialize tracking variables
 # -----------------------------------------------------------------------------
-# These lists track which organizations were corrected vs already compliant,
-# and collect product sync status across all organizations.
+# These lists track enforcement results and sync status across all organizations.
 - name: Initialize compliance tracking variables
   ansible.builtin.set_fact:
     corrected_organizations: []
@@ -42,9 +44,10 @@
     msg: "Found {{ all_organizations.organizations | length }} organization(s) in Satellite"
 
 # -----------------------------------------------------------------------------
-# Filter out opted-out organizations
+# Filter out opted-out organizations (for enforcement only)
 # -----------------------------------------------------------------------------
-# Remove any organizations listed in sync_plan_enforcement_org_opt_out.
+# This filtered list is ONLY used for enforcement.
+# Sync status collection uses the unfiltered all_organizations list.
 - name: Build list of organizations to process (excluding opt-outs)
   ansible.builtin.set_fact:
     organizations_to_process: >-
@@ -57,17 +60,26 @@
 - name: Display organizations to be processed
   ansible.builtin.debug:
     msg: >-
-      Processing {{ organizations_to_process | length }} organization(s).
-      Opted-out: {{ sync_plan_enforcement_org_opt_out | default([]) | join(', ') | default('none', true) }}
+      Enforcing on {{ organizations_to_process | length }} organization(s).
+      Opted-out of enforcement: {{ sync_plan_enforcement_org_opt_out | default([]) | join(', ') | default('none', true) }}.
+      Collecting sync status from ALL {{ all_organizations.organizations | length }} organization(s).
 
-# -----------------------------------------------------------------------------
-# Process each organization
-# -----------------------------------------------------------------------------
-# Loop through each organization and include the processing tasks.
-# The 'current_org' variable is available inside process_organization.yml.
-- name: Process sync plans for each organization
+# =============================================================================
+# A. ENFORCEMENT - Runs on filtered organizations only (respects opt-out)
+# =============================================================================
+- name: Process sync plan enforcement for each organization (opt-out respected)
   ansible.builtin.include_tasks: process_organization.yml
   loop: "{{ organizations_to_process }}"
+  loop_control:
+    loop_var: current_org
+    label: "{{ current_org.name }}"
+
+# =============================================================================
+# B. SYNC STATUS - Runs on ALL organizations (opt-out ignored)
+# =============================================================================
+- name: Collect sync status from ALL organizations (opt-out ignored)
+  ansible.builtin.include_tasks: collect_sync_status.yml
+  loop: "{{ all_organizations.organizations }}"
   loop_control:
     loop_var: current_org
     label: "{{ current_org.name }}"
@@ -110,7 +122,7 @@
 - name: Display opted-out organizations
   ansible.builtin.debug:
     msg: |
-      Opted-Out Organizations (skipped):
+      Opted-Out Organizations (enforcement skipped, sync status still checked):
       {% if sync_plan_enforcement_org_opt_out | length > 0 %}
       {% for org in sync_plan_enforcement_org_opt_out %}
         - {{ org }}
@@ -157,7 +169,7 @@
     msg: |
 
       ============================================================
-      Product Sync Status Report
+      Product Sync Status Report (ALL Organizations)
       ============================================================
 
 # -----------------------------------------------------------------------------
@@ -194,7 +206,7 @@
   ansible.builtin.debug:
     msg: |
 
-      Summary: {{ sync_status_details | length }} product(s) checked, {{ sync_failures | length }} failure(s) detected.
+      Summary: {{ sync_status_details | length }} product(s) checked across ALL organizations, {{ sync_failures | length }} failure(s) detected.
 
       ============================================================
       End of Product Sync Status Report

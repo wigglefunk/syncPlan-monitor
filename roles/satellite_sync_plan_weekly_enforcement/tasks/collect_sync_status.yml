@@ -1,0 +1,53 @@
+---
+# roles/satellite_sync_plan_weekly_enforcement/tasks/collect_sync_status.yml
+#
+# Included task file to collect product sync status for a single organization.
+# Called from main.yml in a loop with 'current_org' as the loop variable.
+#
+# This runs against ALL organizations - it is NOT filtered by the opt-out list.
+# Enforcement and sync status are separate concerns:
+#   - Opted-out orgs skip interval enforcement (process_organization.yml)
+#   - ALL orgs get their sync status checked (this file)
+#
+# This file:
+#   1. Retrieves all sync plans for the current organization
+#   2. Walks each sync plan's products via subelements
+#   3. Records product name, sync_state, and last_sync into sync_status_details
+
+# -----------------------------------------------------------------------------
+# Get all sync plans for this organization
+# -----------------------------------------------------------------------------
+- name: "Get sync plans for sync status check: {{ current_org.name }}"
+  redhat.satellite.resource_info:
+    server_url: "{{ satellite_server_url }}"
+    username: "{{ satellite_setup_username }}"
+    password: "{{ satellite_initial_admin_password }}"
+    validate_certs: false
+    resource: sync_plans
+    params:
+      organization_id: "{{ current_org.id }}"
+  register: org_sync_plans_status
+
+# -----------------------------------------------------------------------------
+# Collect product sync status from ALL sync plans in this organization
+# -----------------------------------------------------------------------------
+# The nested loop (subelements) walks: sync_plan -> products[] -> individual product
+# skip_missing=True handles sync plans that have no products attached
+- name: "Collect product sync status for: {{ current_org.name }}"
+  ansible.builtin.set_fact:
+    sync_status_details: >-
+      {{
+        sync_status_details + [
+          {
+            'organization': current_org.name,
+            'sync_plan': item.0.name,
+            'product_name': item.1.name,
+            'sync_state': item.1.sync_state,
+            'last_sync': item.1.last_sync | default('Never')
+          }
+        ]
+      }}
+  loop: "{{ org_sync_plans_status.resources | subelements('products', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }} -> {{ item.1.name }}"
+  when: org_sync_plans_status.resources | length > 0
